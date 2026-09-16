@@ -1,0 +1,37 @@
+{
+  "id": "birthright-domain-tools-sw",
+  "title": "Birthright Domain Tools - Swords & Wizardry",
+  "description": "Standalone Birthright domain management tools for Swords & Wizardry campaigns. Fixes province tax collection to require Law 1+.",
+  "version": "0.7.1",
+  "authors": [
+    {
+      "name": "Philip Carr"
+    }
+  ],
+  "compatibility": {
+    "minimum": "12",
+    "verified": "14"
+  },
+  "relationships": {
+    "systems": [
+      {
+        "id": "swords-and-wizardry"
+      },
+      {
+        "id": "swnr"
+      },
+      {
+        "id": "swords-wizardry"
+      }
+    ]
+  },
+  "esmodules": [
+    "scripts/birthright-domain-tools-sw.js"
+  ],
+  "styles": [
+    "styles/birthright-domain-tools-sw.css"
+  ],
+  "download": "https://raw.githubusercontent.com/bagfullofdice/birthright-domain-tools-sw/main/birthright-domain-tools-sw.zip",
+  "manifest": "https://raw.githubusercontent.com/bagfullofdice/birthright-domain-tools-sw/main/module.json",
+  "url": "https://github.com/bagfullofdice/birthright-domain-tools-sw"
+}
