@@ -1,0 +1,179 @@
+
+    ChatMessage.create({
+      speaker: ChatMessage.getSpeaker({ actor: app.actor }),
+      content: `<h2>${domain.domainName || app.actor.name}: Maintenance Paid</h2><p><b>Domain Maintenance:</b> ${domain.domainMaintenanceCost} GB</p><p><b>Court Maintenance:</b> ${domain.courtMaintenance} GB</p><p><b>Army Maintenance:</b> ${armyMaintenance} GB</p><p><b>Total Maintenance:</b> ${totalMaintenance} GB</p><p><b>New Treasury:</b> ${domain.treasury} GB</p>`
+    });
+
+    app.render({ force: true });
+  }
+
+  static async rollRandomEvent(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const domain = await app.saveCurrentForm();
+    const roll = await new Roll("2d10").evaluate();
+    const total = roll.total;
+    let eventName = "No Event";
+
+    if (total === 2) eventName = "Blood Challenge";
+    else if (total === 3) eventName = "Assassination";
+    else if (total === 4) eventName = "Festival";
+    else if (total === 5) eventName = "Feud";
+    else if (total === 6) eventName = "Natural Event";
+    else if (total === 7) eventName = "Diplomatic Matter";
+    else if (total === 8) eventName = "Corruption/Crime";
+    else if (total >= 9 && total <= 12) eventName = "No Event";
+    else if (total >= 13 && total <= 14) eventName = "Monsters or Brigandage";
+    else if (total === 15) eventName = "Trade Matter";
+    else if (total === 16) eventName = "Intrigue";
+    else if (total === 17) eventName = "Unrest or Rebellion";
+    else if (total === 18) eventName = "Matter of Justice";
+    else if (total === 19) eventName = "Great Captain/Heresy";
+    else if (total === 20) eventName = "Magical Event";
+
+    ChatMessage.create({
+      speaker: ChatMessage.getSpeaker({ actor: app.actor }),
+      content: `<h2>${domain.domainName || app.actor.name}: Random Domain Event</h2><p><b>Roll:</b> ${total}</p><p><b>Event:</b> ${eventName}</p>`,
+      rolls: [roll]
+    });
+  }
+
+  static async postSummary(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const domain = await app.saveCurrentForm();
+    const maintenance = calculateDomainMaintenance(domain);
+    const rowRegency = domain.provinces.reduce((sum, p) => sum + numberValue(p.regency), 0);
+    const baseRegency = rowRegency || numberValue(domain.domainPower);
+    const bloodlineCap = numberValue(domain.bloodlineScore);
+    const collectible = bloodlineCap > 0 ? Math.min(baseRegency, bloodlineCap) : baseRegency;
+
+    ChatMessage.create({
+      speaker: ChatMessage.getSpeaker({ actor: app.actor }),
+      content: `<h2>${domain.domainName || app.actor.name}: Domain Summary</h2><p><b>Regent:</b> ${domain.regent || "—"}</p><p><b>Capital Province:</b> ${domain.capitalProvince || "—"}</p><p><b>Treasury:</b> ${domain.treasury} GB</p><p><b>Regency:</b> ${domain.currentRegency} RP</p><p><b>Collectible RP:</b> ${collectible} RP</p><p><b>Calculated Domain Maintenance:</b> ${maintenance.cost} GB (${maintenance.controlled} provinces/holdings)</p><p><b>Army Maintenance:</b> ${domain.armies.reduce((sum, a) => sum + numberValue(a.maintenance), 0)} GB</p><p><b>Total Maintenance Before Court:</b> ${maintenance.cost + domain.armies.reduce((sum, a) => sum + numberValue(a.maintenance), 0)} GB</p><p><b>Provinces:</b> ${domain.provinces.length}</p><p><b>Armies:</b> ${domain.armies.length}</p><p><b>Trade Routes:</b> ${domain.tradeRoutes.length}</p>`
+    });
+  }
+
+  static async createJournal(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const domain = await app.saveCurrentForm();
+    const name = `${domain.domainName || app.actor.name} Domain Ledger`;
+    const maintenance = calculateDomainMaintenance(domain);
+
+    const tradeRouteRows = domain.tradeRoutes.map(t => `
+      <tr><td>${t.name}</td><td>${t.routeType || "Land"}</td><td>${t.origin}</td><td>${t.destination}</td><td>${t.income}</td></tr>
+    `).join("");
+
+    const rows = domain.provinces.map(p => `
+      <tr>
+        <td>${p.name}</td><td>${p.terrain}</td><td>${p.level}</td><td>${p.castle}</td>
+        <td>${p.law}</td><td>${p.temple}</td><td>${p.guild}</td><td>${p.source}</td>
+        <td>${p.taxLevel}</td><td>${p.loyalty}</td><td>${p.regency}</td>
+      </tr>
+    `).join("");
+
+
+    const turnRows = (domain.domainTurns ?? []).map(turn => {
+      const free = (turn.freeActions ?? []).filter(a => a.action || a.notes || a.target).map(a => `<li><b>${a.action || "Free Action"}:</b> ${a.target || ""} ${a.result ? `(${a.result})` : ""}<br>${a.notes || ""}</li>`).join("");
+      const domainActs = (turn.domainActions ?? []).filter(a => a.action || a.notes || a.target).map((a, i) => `<li><b>Action ${i + 1} - ${a.action || "Domain Action"}:</b> ${a.target || ""} ${a.result ? `(${a.result})` : ""}<br>${a.notes || ""}</li>`).join("");
+      return `<h3>${turn.label || "Domain Turn"} ${turn.season || ""} ${turn.year || ""}</h3><p>${turn.notes || ""}</p><h4>Free Actions</h4><ul>${free || "<li>None recorded.</li>"}</ul><h4>Domain Actions</h4><ul>${domainActs || "<li>None recorded.</li>"}</ul>`;
+    }).join("");
+
+    const content = `
+      <h1>${name}</h1>
+      <p><b>Regent:</b> ${domain.regent || app.actor.name}</p>
+      <p><b>Class/Level:</b> ${domain.raceClassLevel || "—"}</p>
+      <p><b>Bloodline:</b> ${domain.bloodlineDerivation || "—"} ${domain.bloodlineStrength || ""} (${domain.bloodlineScore || 0})</p>
+      <p><b>Treasury:</b> ${domain.treasury} GB</p>
+      <p><b>Regency:</b> ${domain.currentRegency} RP</p>
+      <p><b>Domain Maintenance:</b> ${domain.domainMaintenanceCost} GB; calculated ${maintenance.cost} GB</p>
+      <h2>Provinces and Holdings</h2>
+      <table>
+        <thead>
+          <tr><th>Province</th><th>Terr.</th><th>Level</th><th>Castle</th><th>Law</th><th>Temple</th><th>Guild</th><th>Source</th><th>Tax</th><th>Loyalty</th><th>RP</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <h2>Trade Routes</h2>
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Origin</th><th>Destination</th><th>Income</th></tr></thead>
+        <tbody>${tradeRouteRows || "<tr><td colspan='5'>No trade routes recorded.</td></tr>"}</tbody>
+      </table>
+      <h2>Domain Turns and Actions</h2>
+      ${turnRows || "<p>No domain turns recorded.</p>"}
+    `;
+
+    let journal = game.journal.getName(name);
+    if (!journal) journal = await JournalEntry.create({ name });
+
+    const page = journal.pages.find(p => p.name === "Ledger");
+    if (page) await page.update({ text: { content } });
+    else await journal.createEmbeddedDocuments("JournalEntryPage", [{
+      name: "Ledger",
+      type: "text",
+      text: { content, format: CONST.JOURNAL_ENTRY_PAGE_FORMATS.HTML }
+    }]);
+
+    ui.notifications.info(`${name} created/updated.`);
+  }
+}
+
+function openDomainManager(actor = null) {
+  actor = actor ?? selectedOrUserActor();
+
+  if (!actor) {
+    ui.notifications.warn("Select a token or assign a character before opening the Domain Manager.");
+    return;
+  }
+
+  if (!actor.isOwner && !game.user.isGM) {
+    ui.notifications.error(`You do not have Owner permission for ${actor.name}.`);
+    return;
+  }
+
+  new BirthrightSWDomainManager(actor).render(true);
+}
+
+Hooks.once("init", () => console.log("Birthright Domain Tools S&W | Initializing"));
+
+Hooks.once("ready", () => {
+  console.log("Birthright Domain Tools S&W | Ready");
+
+  game.birthrightSW = game.birthrightSW || {};
+  game.birthrightSW.MODULE_ID = MODULE_ID;
+  game.birthrightSW.TAX_TABLE = TAX_TABLE;
+  game.birthrightSW.openDomainManager = openDomainManager;
+  game.birthrightSW.getDomain = getDomain;
+  game.birthrightSW.setDomain = setDomain;
+  game.birthrightSW.selectedActor = selectedOrUserActor;
+  game.birthrightSW.provinceTaxFormula = provinceTaxFormula;
+  game.birthrightSW.holdingCollectionFormula = holdingCollectionFormula;
+  game.birthrightSW.GUILD_TEMPLE_COLLECTION_TABLE = GUILD_TEMPLE_COLLECTION_TABLE;
+  game.birthrightSW.calculateMaintenance = calculateDomainMaintenance;
+  game.birthrightSW.holdingCollectionFormula = holdingCollectionFormula;
+  game.birthrightSW.GUILD_TEMPLE_COLLECTION_TABLE = GUILD_TEMPLE_COLLECTION_TABLE;
+  game.birthrightSW.collectGuildTempleTrade = async (actor = selectedOrUserActor()) => {
+    if (!actor) return ui.notifications.warn('Select a regent token first.');
+    const app = new BirthrightSWDomainManager(actor);
+    await app.render(true);
+    const domain = await getDomain(actor);
+    const fakeTarget = { dataset: { brNativeHandled: '0' } };
+    return BirthrightSWDomainManager.collectGuildTempleTrade.call(app, new Event('click'), fakeTarget);
+  };
+  game.birthrightSW.DOMAIN_ACTIONS = DOMAIN_ACTIONS;
+
+
+  game.birthrightSW.holdingCollectionFormula = holdingCollectionFormula;
+  game.birthrightSW.GUILD_TEMPLE_COLLECTION_TABLE = GUILD_TEMPLE_COLLECTION_TABLE;
+  game.birthrightSW.collectGuildTempleTrade = async function(actor = selectedOrUserActor()) {
+    return collectGuildTempleTradeForActor(actor);
+  };
+
+
+  game.birthrightSW.buildWorldDomainRegistry = buildWorldDomainRegistry;
+  game.birthrightSW.postWorldDomainTracker = postWorldDomainTracker;
+  game.birthrightSW.findLawClaimsForHolding = findLawClaimsForHolding;
+
+  ui.notifications.info("Birthright Domain Tools - S&W loaded.");
+});
