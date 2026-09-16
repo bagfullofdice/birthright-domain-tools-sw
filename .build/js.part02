@@ -1,0 +1,200 @@
+
+
+const MAINTENANCE_TABLE = [
+  { max: 2, cost: 0 },
+  { max: 6, cost: 1 },
+  { max: 12, cost: 2 },
+  { max: 18, cost: 3 },
+  { max: 24, cost: 4 },
+  { max: 30, cost: 5 },
+  { max: 40, cost: 7 },
+  { max: 50, cost: 10 },
+  { max: 75, cost: 20 },
+  { max: 100, cost: 30 }
+];
+
+function duplicateData(data) {
+  return foundry.utils.deepClone(data);
+}
+
+function numberValue(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeHoldingLevel(value) {
+  const cleaned = String(value ?? "None").trim();
+  if (cleaned === "" || cleaned.toLowerCase() === "none") return "None";
+  const parsed = Number(cleaned);
+  if (!Number.isFinite(parsed)) return "None";
+  return Math.max(0, Math.min(10, Math.floor(parsed)));
+}
+
+function holdingExists(value) {
+  return normalizeHoldingLevel(value) !== "None";
+}
+
+function holdingNumberValue(value) {
+  const normalized = normalizeHoldingLevel(value);
+  return normalized === "None" ? 0 : Number(normalized);
+}
+
+function holdingLevelOptions(selected) {
+  const normalized = normalizeHoldingLevel(selected);
+  const values = ["None", 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  return values.map(value => ({
+    value: String(value),
+    label: String(value),
+    selected: String(value) === String(normalized)
+  }));
+}
+
+function safeText(value) {
+  return String(value ?? "").trim();
+}
+
+function clampProvinceLevel(level) {
+  return Math.max(0, Math.min(10, Math.floor(numberValue(level))));
+}
+
+function normalizeTaxLevel(value) {
+  const cleaned = safeText(value);
+  if (["None", "Light", "Moderate", "Severe"].includes(cleaned)) return cleaned;
+  if (["none", "light", "moderate", "severe"].includes(cleaned)) {
+    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return "Moderate";
+}
+
+function normalizeLoyalty(value) {
+  const cleaned = safeText(value);
+  return ["Rebellious", "Poor", "Average", "High", "Loyal"].includes(cleaned) ? cleaned : "Average";
+}
+
+function normalizeTradeRouteType(value) {
+  const cleaned = safeText(value);
+  return ["Land", "Sea"].includes(cleaned) ? cleaned : "Land";
+}
+
+function tradeRouteTypeOptions(selected) {
+  return ["Land", "Sea"].map(value => ({
+    value,
+    label: value,
+    selected: value === normalizeTradeRouteType(selected)
+  }));
+}
+
+async function getDomain(actor) {
+  if (!actor) return null;
+
+  const stored = actor.getFlag(MODULE_ID, "domain") ?? {};
+  const domain = foundry.utils.mergeObject(duplicateData(DEFAULT_DOMAIN), stored, {
+    inplace: false,
+    recursive: true
+  });
+
+  // Migration from earlier S&W versions: taxation -> taxLevel, lastTax removed.
+  domain.provinces = (domain.provinces ?? []).map(p => {
+    const migrated = {
+      ...p,
+      taxLevel: normalizeTaxLevel(p.taxLevel ?? p.taxation ?? "Moderate"),
+      law: p.law === undefined ? "None" : normalizeHoldingLevel(p.law),
+      temple: p.temple === undefined ? "None" : normalizeHoldingLevel(p.temple),
+      guild: p.guild === undefined ? "None" : normalizeHoldingLevel(p.guild),
+      source: p.source === undefined ? "None" : normalizeHoldingLevel(p.source)
+    };
+    delete migrated.taxation;
+    return foundry.utils.mergeObject(duplicateData(DEFAULT_PROVINCE), migrated, {
+      inplace: false,
+      recursive: true
+    });
+  });
+
+  if (!domain.regent) domain.regent = actor.name;
+
+  return domain;
+}
+
+async function setDomain(actor, data) {
+  if (!actor) {
+    ui.notifications.warn("No actor provided.");
+    return;
+  }
+
+  await actor.setFlag(MODULE_ID, "domain", data);
+  return data;
+}
+
+function selectedOrUserActor() {
+  const token = canvas.tokens.controlled[0] ?? null;
+  return token?.actor ?? token?.document?.actor ?? game.user.character ?? null;
+}
+
+function normalizeDomainForm(formData) {
+  const expanded = foundry.utils.expandObject(formData);
+  const domain = foundry.utils.mergeObject(duplicateData(DEFAULT_DOMAIN), expanded.domain ?? {}, {
+    inplace: false,
+    recursive: true
+  });
+
+  domain.provinces = Object.values(expanded.provinces ?? {}).map(p => ({
+    name: safeText(p.name),
+    terrain: safeText(p.terrain),
+    level: clampProvinceLevel(p.level),
+    castle: numberValue(p.castle),
+    law: normalizeHoldingLevel(p.law),
+    temple: normalizeHoldingLevel(p.temple),
+    guild: normalizeHoldingLevel(p.guild),
+    source: normalizeHoldingLevel(p.source),
+    taxLevel: normalizeTaxLevel(p.taxLevel),
+    loyalty: normalizeLoyalty(p.loyalty),
+    regency: numberValue(p.regency)
+  }));
+
+  domain.lieutenants = Object.values(expanded.lieutenants ?? {}).map(l => ({
+    name: safeText(l.name),
+    role: safeText(l.role)
+  }));
+
+  domain.armies = Object.values(expanded.armies ?? {}).map(a => ({
+    unit: safeText(a.unit),
+    location: safeText(a.location),
+    maintenance: numberValue(a.maintenance)
+  }));
+
+  domain.tradeRoutes = Object.values(expanded.tradeRoutes ?? {}).map(t => ({
+    name: safeText(t.name),
+    origin: safeText(t.origin),
+    destination: safeText(t.destination),
+    routeType: normalizeTradeRouteType(t.routeType),
+    income: numberValue(t.income)
+  }));
+
+
+  domain.domainTurns = Object.values(expanded.domainTurns ?? {}).map(t => ({
+    label: safeText(t.label),
+    season: safeText(t.season),
+    year: safeText(t.year),
+    freeActions: Object.values(t.freeActions ?? {}).map(a => ({
+      action: safeText(a.action),
+      target: safeText(a.target),
+      cost: safeText(a.cost),
+      result: safeText(a.result),
+      notes: safeText(a.notes)
+    })),
+    domainActions: Object.values(t.domainActions ?? {}).map(a => ({
+      action: safeText(a.action),
+      target: safeText(a.target),
+      cost: safeText(a.cost),
+      result: safeText(a.result),
+      notes: safeText(a.notes)
+    })),
+    notes: safeText(t.notes)
+  }));
+
+  domain.domainName = safeText(domain.domainName);
+  domain.regent = safeText(domain.regent);
+  domain.capitalProvince = safeText(domain.capitalProvince);
+  domain.raceClassLevel = safeText(domain.raceClassLevel);
+  domain.bloodlineStrength = safeText(domain.bloodlineStrength);
+  domain.bloodlineDerivation = safeText(domain.bloodlineDerivation);
