@@ -1,0 +1,200 @@
+
+  static async deleteDomainTurn(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const index = Number(target.dataset.index);
+    const domain = await app.saveCurrentForm();
+    domain.domainTurns.splice(index, 1);
+    await setDomain(app.actor, domain);
+    app.render({ force: true });
+  }
+
+  static async addFreeAction(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const turnIndex = Number(target.dataset.turnIndex);
+    const domain = await app.saveCurrentForm();
+
+    if (!domain.domainTurns[turnIndex]) {
+      ui.notifications.warn("Could not find that domain turn.");
+      return;
+    }
+
+    domain.domainTurns[turnIndex].freeActions.push(duplicateData(DEFAULT_ACTION_ENTRY));
+    await setDomain(app.actor, domain);
+    app.render({ force: true });
+  }
+
+  static async deleteFreeAction(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const turnIndex = Number(target.dataset.turnIndex);
+    const actionIndex = Number(target.dataset.actionIndex);
+    const domain = await app.saveCurrentForm();
+
+    if (!domain.domainTurns[turnIndex]) {
+      ui.notifications.warn("Could not find that domain turn.");
+      return;
+    }
+
+    domain.domainTurns[turnIndex].freeActions.splice(actionIndex, 1);
+
+    if (domain.domainTurns[turnIndex].freeActions.length === 0) {
+      domain.domainTurns[turnIndex].freeActions.push(duplicateData(DEFAULT_ACTION_ENTRY));
+    }
+
+    await setDomain(app.actor, domain);
+    app.render({ force: true });
+  }
+
+  static async collectTaxes(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const domain = await app.saveCurrentForm();
+    let totalProvinceIncome = 0;
+    let chatRows = "";
+
+    for (const province of domain.provinces) {
+      const level = clampProvinceLevel(province.level);
+      const taxLevel = normalizeTaxLevel(province.taxLevel);
+      const lawLevel = typeof holdingNumberValue === "function" ? holdingNumberValue(province.law) : numberValue(province.law);
+      const formula = TAX_TABLE?.[taxLevel]?.[level];
+      let rollResult = "—";
+      let income = 0;
+
+      if (lawLevel <= 0) {
+        rollResult = `No tax collection: Law ${province.law ?? "None"}`;
+      } else if (formula) {
+        const roll = await new Roll(formula).evaluate();
+        income = Math.max(0, numberValue(roll.total));
+        rollResult = `${formula} = ${roll.total}`;
+      }
+
+      totalProvinceIncome += income;
+      chatRows += `
+        <tr>
+          <td>${province.name || "Unnamed Province"}</td>
+          <td>${taxLevel}</td>
+          <td>${level}</td>
+          <td>${lawLevel > 0 ? lawLevel : (province.law ?? "None")}</td>
+          <td>${rollResult}</td>
+          <td>${income} GB</td>
+        </tr>
+      `;
+    }
+
+    const tradeIncome = domain.tradeRoutes.reduce((sum, t) => sum + numberValue(t.income), 0);
+    const totalIncome = totalProvinceIncome + tradeIncome;
+    domain.treasury = numberValue(domain.treasury) + totalIncome;
+
+    await setDomain(app.actor, domain);
+
+    ChatMessage.create({
+      speaker: ChatMessage.getSpeaker({ actor: app.actor }),
+      content: `
+        <section class="birthright-chat-card">
+          <h2>${domain.domainName || app.actor.name}: Tax Collection</h2>
+          <table style="width:100%; border-collapse: collapse;">
+            <thead>
+              <tr>
+                <th style="text-align:left;">Province</th>
+                <th style="text-align:left;">Taxation</th>
+                <th style="text-align:left;">Level</th>
+                <th style="text-align:left;">Law</th>
+                <th style="text-align:left;">Roll</th>
+                <th style="text-align:left;">Income</th>
+              </tr>
+            </thead>
+            <tbody>${chatRows}</tbody>
+          </table>
+          <hr>
+          <p><b>Province Income:</b> ${totalProvinceIncome} GB</p>
+          <p><b>Trade Route Income:</b> ${tradeIncome} GB</p>
+          <p><b>Total Collected:</b> ${totalIncome} GB</p>
+          <p><b>New Treasury:</b> ${domain.treasury} GB</p>
+        </section>
+      `
+    });
+
+    app.render({ force: true });
+  }
+
+
+
+  static async collectGuildTempleTrade(event, target) {
+    if (target?.dataset) target.dataset.brNativeHandled = "1";
+    const app = this;
+    const domain = await app.saveCurrentForm();
+    await collectGuildTempleTradeForActor(app.actor, domain);
+    app.render({ force: true });
+  }
+
+  static async collectRegency(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const domain = await app.saveCurrentForm();
+
+    const rowRegency = domain.provinces.reduce((sum, p) => sum + numberValue(p.regency), 0);
+    const baseRegency = rowRegency || numberValue(domain.domainPower);
+    const bloodlineCap = numberValue(domain.bloodlineScore);
+    const totalRegency = bloodlineCap > 0 ? Math.min(baseRegency, bloodlineCap) : baseRegency;
+
+    domain.currentRegency = numberValue(domain.currentRegency) + totalRegency;
+
+    await setDomain(app.actor, domain);
+
+    ChatMessage.create({
+      speaker: ChatMessage.getSpeaker({ actor: app.actor }),
+      content: `
+        <h2>${domain.domainName || app.actor.name}: Regency Collection</h2>
+        <p><b>Domain Power / Row RP:</b> ${baseRegency} RP</p>
+        <p><b>Bloodline Score Cap:</b> ${bloodlineCap || "None entered"}</p>
+        <p><b>Regency Collected:</b> ${totalRegency} RP</p>
+        <p><b>New Regency Total:</b> ${domain.currentRegency} RP</p>
+      `
+    });
+
+    app.render({ force: true });
+  }
+
+  static async calculateMaintenance(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const domain = await app.saveCurrentForm();
+    const maintenance = calculateDomainMaintenance(domain);
+    const armyMaintenance = domain.armies.reduce((sum, a) => sum + numberValue(a.maintenance), 0);
+    const courtMaintenance = numberValue(domain.courtMaintenance);
+    const totalMaintenance = numberValue(maintenance.cost) + armyMaintenance + courtMaintenance;
+
+    // Keep this field as the domain maintenance cost only, so Pay Maintenance does not double-count armies.
+    domain.domainMaintenanceCost = maintenance.cost;
+
+    await setDomain(app.actor, domain);
+
+    ui.notifications.info(`Maintenance calculated: ${maintenance.cost} GB domain + ${armyMaintenance} GB army + ${courtMaintenance} GB court = ${totalMaintenance} GB total.`);
+
+    ChatMessage.create({
+      speaker: ChatMessage.getSpeaker({ actor: app.actor }),
+      content: `
+        <h2>${domain.domainName || app.actor.name}: Maintenance Calculation</h2>
+        <p><b>Controlled Provinces/Holdings:</b> ${maintenance.controlled}</p>
+        <p><b>Domain Maintenance:</b> ${maintenance.cost} GB</p>
+        <p><b>Army Maintenance:</b> ${armyMaintenance} GB</p>
+        <p><b>Court Maintenance:</b> ${courtMaintenance} GB</p>
+        <hr>
+        <p><b>Total Maintenance Due:</b> ${totalMaintenance} GB</p>
+      `
+    });
+
+    app.render({ force: true });
+  }
+
+  static async payMaintenance(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const domain = await app.saveCurrentForm();
+    const armyMaintenance = domain.armies.reduce((sum, a) => sum + numberValue(a.maintenance), 0);
+    const totalMaintenance = numberValue(domain.domainMaintenanceCost) + numberValue(domain.courtMaintenance) + armyMaintenance;
+    domain.treasury = numberValue(domain.treasury) - totalMaintenance;
+
+    await setDomain(app.actor, domain);
