@@ -1,0 +1,200 @@
+      systemId: game.system.id,
+      isGM: game.user.isGM,
+      provinceRows: domain.provinces.map((p, i) => {
+        const law = normalizeHoldingLevel(p.law);
+        const temple = normalizeHoldingLevel(p.temple);
+        const guild = normalizeHoldingLevel(p.guild);
+        const source = normalizeHoldingLevel(p.source);
+
+        return {
+          ...p,
+          index: i,
+          taxFormula: provinceTaxFormula(p.level, p.taxLevel) ?? "—",
+
+          lawNone: law === "None", law0: law === 0, law1: law === 1, law2: law === 2, law3: law === 3, law4: law === 4, law5: law === 5, law6: law === 6, law7: law === 7, law8: law === 8, law9: law === 9, law10: law === 10,
+          templeNone: temple === "None", temple0: temple === 0, temple1: temple === 1, temple2: temple === 2, temple3: temple === 3, temple4: temple === 4, temple5: temple === 5, temple6: temple === 6, temple7: temple === 7, temple8: temple === 8, temple9: temple === 9, temple10: temple === 10,
+          guildNone: guild === "None", guild0: guild === 0, guild1: guild === 1, guild2: guild === 2, guild3: guild === 3, guild4: guild === 4, guild5: guild === 5, guild6: guild === 6, guild7: guild === 7, guild8: guild === 8, guild9: guild === 9, guild10: guild === 10,
+          sourceNone: source === "None", source0: source === 0, source1: source === 1, source2: source === 2, source3: source === 3, source4: source === 4, source5: source === 5, source6: source === 6, source7: source === 7, source8: source === 8, source9: source === 9, source10: source === 10,
+
+          taxOptions: taxOptions(normalizeTaxLevel(p.taxLevel)),
+          loyaltyOptions: loyaltyOptions(p.loyalty ?? "Average")
+        };
+      }),
+      armyRows: domain.armies.map((a, i) => ({ ...a, index: i })),
+      lieutenantRows: domain.lieutenants.map((l, i) => ({ ...l, index: i })),
+      tradeRouteRows: domain.tradeRoutes.map((t, i) => ({
+        ...t,
+        index: i,
+        isLand: normalizeTradeRouteType(t.routeType) === "Land",
+        isSea: normalizeTradeRouteType(t.routeType) === "Sea"
+      })),
+      domainTurnRows: (domain.domainTurns ?? []).map((turn, i) => ({
+        ...turn,
+        index: i,
+        freeRows: (turn.freeActions ?? []).map((a, j) => ({
+          ...a,
+          turnIndex: i,
+          actionIndex: j,
+          round: j + 1,
+          info: actionInfo(a.action),
+          actionOptions: actionOptions(a.action)
+        })),
+        domainRows: (turn.domainActions ?? []).map((a, j) => ({
+          ...a,
+          turnIndex: i,
+          actionIndex: j,
+          round: j + 1,
+          info: actionInfo(a.action),
+          actionOptions: actionOptions(a.action)
+        }))
+      }))
+    };
+  }
+
+  async _onRender(context, options) {
+    await super._onRender?.(context, options);
+
+    const domainName = context?.domain?.domainName || "Birthright S&W Domain Manager";
+    const root = this.element?.querySelectorAll ? this.element : this.element?.[0];
+    const win = root?.closest?.(".application, .window-app, .window");
+    const titleNode = win?.querySelector?.(".window-title, .window-header .title");
+    if (titleNode) titleNode.textContent = domainName;
+
+    // Manual fallback action binding for Foundry builds where ApplicationV2 actions do not fire.
+    root?.querySelectorAll?.("[data-action]")?.forEach(button => {
+      if (button.dataset.brFallbackBound === "1") return;
+      button.dataset.brFallbackBound = "1";
+
+      button.addEventListener("click", async event => {
+        // Let the native ApplicationV2 action handler run first if it exists.
+        // The fallback fires shortly after only if nothing changed.
+        const action = button.dataset.action;
+        const fn = BirthrightSWDomainManager[action];
+        if (typeof fn !== "function") return;
+
+        window.setTimeout(async () => {
+          if (button.dataset.brNativeHandled === "1") {
+            button.dataset.brNativeHandled = "0";
+            return;
+          }
+
+          try {
+            await fn.call(this, event, button);
+          } catch (err) {
+            console.error(`Birthright S&W | Action failed: ${action}`, err);
+            ui.notifications.error(`Birthright S&W action failed: ${action}. See console.`);
+          }
+        }, 50);
+      });
+    });
+  }
+
+  static async formHandler(event, form, formData) {
+    const app = this;
+    const domain = normalizeDomainForm(formData.object);
+    await setDomain(app.actor, domain);
+    ui.notifications.info(`${domain.domainName || app.actor.name} domain record saved.`);
+    app.render({ force: true });
+  }
+
+  async saveCurrentForm() {
+    const form = this.element;
+    const fd = new FormDataExtended(form);
+    const domain = normalizeDomainForm(fd.object);
+    await setDomain(this.actor, domain);
+    return domain;
+  }
+
+  static async addProvince(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const domain = await app.saveCurrentForm();
+    domain.provinces.push(duplicateData(DEFAULT_PROVINCE));
+    await setDomain(app.actor, domain);
+    app.render({ force: true });
+  }
+
+  static async deleteProvince(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const index = Number(target.dataset.index);
+    const domain = await app.saveCurrentForm();
+    domain.provinces.splice(index, 1);
+    await setDomain(app.actor, domain);
+    app.render({ force: true });
+  }
+
+  static async addArmy(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const domain = await app.saveCurrentForm();
+    domain.armies.push(duplicateData(DEFAULT_ARMY));
+    await setDomain(app.actor, domain);
+    app.render({ force: true });
+  }
+
+  static async deleteArmy(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const index = Number(target.dataset.index);
+    const domain = await app.saveCurrentForm();
+    domain.armies.splice(index, 1);
+    await setDomain(app.actor, domain);
+    app.render({ force: true });
+  }
+
+  static async addLieutenant(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const domain = await app.saveCurrentForm();
+    domain.lieutenants.push(duplicateData(DEFAULT_LIEUTENANT));
+    await setDomain(app.actor, domain);
+    app.render({ force: true });
+  }
+
+  static async deleteLieutenant(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const index = Number(target.dataset.index);
+    const domain = await app.saveCurrentForm();
+    domain.lieutenants.splice(index, 1);
+    await setDomain(app.actor, domain);
+    app.render({ force: true });
+  }
+
+  static async addTradeRoute(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const domain = await app.saveCurrentForm();
+    domain.tradeRoutes.push(duplicateData(DEFAULT_TRADE_ROUTE));
+    await setDomain(app.actor, domain);
+    app.render({ force: true });
+  }
+
+  static async deleteTradeRoute(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const index = Number(target.dataset.index);
+    const domain = await app.saveCurrentForm();
+    domain.tradeRoutes.splice(index, 1);
+    await setDomain(app.actor, domain);
+    app.render({ force: true });
+  }
+
+
+
+  static async worldDomainTracker(event, target) {
+    if (target?.dataset) target.dataset.brNativeHandled = "1";
+    await postWorldDomainTracker();
+  }
+
+  static async addDomainTurn(event, target) {
+    target.dataset.brNativeHandled = "1";
+    const app = this;
+    const domain = await app.saveCurrentForm();
+    const turn = duplicateData(DEFAULT_DOMAIN_TURN);
+    turn.label = `Domain Turn ${domain.domainTurns.length + 1}`;
+    domain.domainTurns.push(turn);
+    await setDomain(app.actor, domain);
+    app.render({ force: true });
+  }
