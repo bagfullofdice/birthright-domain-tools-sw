@@ -1,0 +1,200 @@
+          source: [],
+          castles: []
+        };
+      }
+
+      const entry = registry.provinces[key];
+      const common = {
+        actorId: actor.id,
+        actorName: actor.name,
+        domainName,
+        regent: domain.regent || actor.name,
+        province: provinceName
+      };
+
+      const provinceLevel = numberValue(province.level);
+      if (provinceLevel > 0) entry.provinceLevels.push({ ...common, level: provinceLevel });
+
+      const castleLevel = numberValue(province.castle);
+      if (castleLevel > 0) entry.castles.push({ ...common, level: castleLevel });
+
+      for (const type of ["law", "temple", "guild", "source"]) {
+        const exists = typeof holdingExists === "function" ? holdingExists(province[type]) : numberValue(province[type]) > 0;
+        if (exists) {
+          entry[type].push({
+            ...common,
+            level: typeof holdingNumberValue === "function" ? holdingNumberValue(province[type]) : numberValue(province[type]),
+            rawLevel: province[type]
+          });
+        }
+      }
+    }
+  }
+
+  return registry;
+}
+
+function findLawClaimsForHolding(registry, provinceName, holdingOwnerActorId) {
+  const province = registry.provinces?.[safeText(provinceName).toLowerCase()];
+  if (!province) return [];
+
+  return (province.law ?? [])
+    .filter(law => law.actorId !== holdingOwnerActorId)
+    .map(law => ({
+      ...law,
+      note: `Law ${holdingDisplay(law.rawLevel)} held by ${law.domainName}`
+    }));
+}
+
+function renderWorldDomainTrackerHTML(registry) {
+  const actorRows = registry.actors
+    .sort((a, b) => a.domainName.localeCompare(b.domainName))
+    .map(d => `
+      <tr>
+        <td>${d.domainName}</td>
+        <td>${d.regent}</td>
+        <td>${d.treasury} GB</td>
+        <td>${d.regency} RP</td>
+        <td>${d.domainPower}</td>
+        <td>${d.bloodlineScore}</td>
+      </tr>
+    `).join("");
+
+  const provinceRows = Object.values(registry.provinces)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(p => {
+      const province = p.provinceLevels.map(h => `${h.domainName} (${h.level})`).join("<br>") || "—";
+      const law = p.law.map(h => `${h.domainName} (${holdingDisplay(h.rawLevel)})`).join("<br>") || "—";
+      const temple = p.temple.map(h => `${h.domainName} (${holdingDisplay(h.rawLevel)})`).join("<br>") || "—";
+      const guild = p.guild.map(h => `${h.domainName} (${holdingDisplay(h.rawLevel)})`).join("<br>") || "—";
+      const source = p.source.map(h => `${h.domainName} (${holdingDisplay(h.rawLevel)})`).join("<br>") || "—";
+
+      return `
+        <tr>
+          <td>${p.name}</td>
+          <td>${province}</td>
+          <td>${law}</td>
+          <td>${temple}</td>
+          <td>${guild}</td>
+          <td>${source}</td>
+        </tr>
+      `;
+    }).join("");
+
+  return `
+    <section class="birthright-chat-card">
+      <h2>World Domain Tracker</h2>
+      <p><b>Domains Found:</b> ${registry.actors.length}</p>
+
+      <h3>Domains</h3>
+      <table style="width:100%; border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th style="text-align:left;">Domain</th>
+            <th style="text-align:left;">Regent</th>
+            <th style="text-align:left;">Treasury</th>
+            <th style="text-align:left;">Regency</th>
+            <th style="text-align:left;">Domain Power</th>
+            <th style="text-align:left;">Bloodline</th>
+          </tr>
+        </thead>
+        <tbody>${actorRows || `<tr><td colspan="6">No domain actors found.</td></tr>`}</tbody>
+      </table>
+
+      <h3>Province / Holding Index</h3>
+      <table style="width:100%; border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th style="text-align:left;">Province</th>
+            <th style="text-align:left;">Province</th>
+            <th style="text-align:left;">Law</th>
+            <th style="text-align:left;">Temple</th>
+            <th style="text-align:left;">Guild</th>
+            <th style="text-align:left;">Source</th>
+          </tr>
+        </thead>
+        <tbody>${provinceRows || `<tr><td colspan="6">No province records found.</td></tr>`}</tbody>
+      </table>
+    </section>
+  `;
+}
+
+async function postWorldDomainTracker() {
+  const registry = await buildWorldDomainRegistry();
+  await ChatMessage.create({
+    whisper: game.user.isGM ? ChatMessage.getWhisperRecipients("GM").map(u => u.id) : [],
+    content: renderWorldDomainTrackerHTML(registry)
+  });
+  return registry;
+}
+
+class BirthrightSWDomainManager extends foundry.applications.api.HandlebarsApplicationMixin(foundry.applications.api.ApplicationV2) {
+  constructor(actor, options = {}) {
+    super(options);
+    this.actor = actor;
+  }
+
+  static DEFAULT_OPTIONS = {
+    id: "birthright-sw-domain-manager",
+    tag: "form",
+    classes: ["birthright-domain", "birthright-sw-domain", "sheet"],
+    window: {
+      title: "Birthright S&W Domain Manager",
+      icon: "fas fa-crown",
+      resizable: true
+    },
+    position: { width: 1080, height: 760 },
+    form: {
+      handler: BirthrightSWDomainManager.formHandler,
+      submitOnChange: false,
+      closeOnSubmit: false
+    },
+    actions: {
+      addProvince: BirthrightSWDomainManager.addProvince,
+      deleteProvince: BirthrightSWDomainManager.deleteProvince,
+      addArmy: BirthrightSWDomainManager.addArmy,
+      deleteArmy: BirthrightSWDomainManager.deleteArmy,
+      addLieutenant: BirthrightSWDomainManager.addLieutenant,
+      deleteLieutenant: BirthrightSWDomainManager.deleteLieutenant,
+      addTradeRoute: BirthrightSWDomainManager.addTradeRoute,
+      deleteTradeRoute: BirthrightSWDomainManager.deleteTradeRoute,
+      collectTaxes: BirthrightSWDomainManager.collectTaxes,
+      collectGuildTempleTrade: BirthrightSWDomainManager.collectGuildTempleTrade,
+      collectRegency: BirthrightSWDomainManager.collectRegency,
+      calculateMaintenance: BirthrightSWDomainManager.calculateMaintenance,
+      payMaintenance: BirthrightSWDomainManager.payMaintenance,
+      rollRandomEvent: BirthrightSWDomainManager.rollRandomEvent,
+      postSummary: BirthrightSWDomainManager.postSummary,
+      createJournal: BirthrightSWDomainManager.createJournal,
+      worldDomainTracker: BirthrightSWDomainManager.worldDomainTracker,
+      addDomainTurn: BirthrightSWDomainManager.addDomainTurn,
+      deleteDomainTurn: BirthrightSWDomainManager.deleteDomainTurn,
+      addFreeAction: BirthrightSWDomainManager.addFreeAction,
+      deleteFreeAction: BirthrightSWDomainManager.deleteFreeAction
+    }
+  };
+
+  static PARTS = {
+    main: { template: `modules/${MODULE_ID}/templates/domain-manager.hbs` }
+  };
+
+  async _prepareContext(options) {
+    const domain = await getDomain(this.actor);
+    const maintenance = calculateDomainMaintenance(domain);
+    const armyMaintenance = domain.armies.reduce((sum, a) => sum + numberValue(a.maintenance), 0);
+    const courtMaintenance = numberValue(domain.courtMaintenance);
+    const totalMaintenance = numberValue(maintenance.cost) + armyMaintenance + courtMaintenance;
+    const regencyFromRows = domain.provinces.reduce((sum, p) => sum + numberValue(p.regency), 0);
+    const baseRegency = regencyFromRows || numberValue(domain.domainPower);
+    const bloodlineCap = numberValue(domain.bloodlineScore);
+    const collectibleRegency = bloodlineCap > 0 ? Math.min(baseRegency, bloodlineCap) : baseRegency;
+
+    return {
+      actor: this.actor,
+      domain,
+      maintenance,
+      armyMaintenance,
+      courtMaintenance,
+      totalMaintenance,
+      regencyFromRows,
+      collectibleRegency,
