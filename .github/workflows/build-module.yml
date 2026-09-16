@@ -1,0 +1,44 @@
+name: Build Foundry Module
+
+on:
+  push:
+    paths:
+      - BUILD_MODULE
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Assemble JavaScript
+        run: |
+          mkdir -p scripts
+          cat .build/js.part01 .build/js.part02 .build/js.part03 .build/js.part04 .build/js.part05 .build/js.part06 .build/js.part07 > scripts/birthright-domain-tools-sw.js
+
+      - name: Package Foundry module
+        run: |
+          rm -f birthright-domain-tools-sw.zip
+          zip -r birthright-domain-tools-sw.zip module.json README.md scripts styles templates
+
+      - name: Verify package
+        run: |
+          test -s scripts/birthright-domain-tools-sw.js
+          test -s birthright-domain-tools-sw.zip
+          unzip -l birthright-domain-tools-sw.zip
+
+      - name: Commit generated files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/birthright-domain-tools-sw.js birthright-domain-tools-sw.zip
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit."
+          else
+            git commit -m "Build Foundry module package"
+            git push
+          fi
