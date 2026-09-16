@@ -1,0 +1,200 @@
+/**
+ * Birthright Domain Tools - Swords & Wizardry
+ * v0.4.0
+ *
+ * This version intentionally follows the known-working ARS module pattern:
+ * - ApplicationV2 form with action handlers
+ * - Actor flags as storage
+ * - Province taxLevel dropdown
+ * - Collect Taxes rolls Birthright Table 17 and updates Treasury
+ * - Collect Regency updates Current RP
+ */
+
+const MODULE_ID = "birthright-domain-tools-sw";
+
+const DOMAIN_ACTIONS = [
+  { name: "", type: "", cost: "", success: "", tip: "Select a domain action." },
+  { name: "Adventure", type: "Character", cost: "None", success: "Special", tip: "The regent personally undertakes an adventure, quest, investigation, or field mission." },
+  { name: "Agitate", type: "Domain / Realm", cost: "1 GB, 1 RP", success: "10+", tip: "Raise or lower province loyalty toward a ruler. Priests may often agitate once per domain turn as a free action." },
+  { name: "Build", type: "Free unless personally supervised", cost: "Variable", success: "5+", tip: "Construct roads, bridges, halls, ports, palaces, warehouses, or other public works." },
+  { name: "Contest", type: "Domain / Realm", cost: "1 RP", success: "10+", tip: "Disrupt a province or holding so it produces no income or regency until restored." },
+  { name: "Create Holding", type: "Domain", cost: "1 GB", success: "10+", tip: "Create a level 0 law, guild, temple, or source holding where eligible." },
+  { name: "Create Province", type: "Domain", cost: "Variable", success: "10+", tip: "Establish a new level 0 province in unsettled or unclaimed land." },
+  { name: "Declare War", type: "Domain", cost: "None", success: "Special", tip: "Begin hostilities and allow movement of military units into foreign territory." },
+  { name: "Decree", type: "Free", cost: "None", success: "Varies", tip: "Issue official commands, laws, appointments, bans, or proclamations." },
+  { name: "Diplomacy", type: "Domain", cost: "1 GB", success: "Varies", tip: "Make alliances, treaties, concessions, trade agreements, or settlements." },
+  { name: "Disband", type: "Free", cost: "None", success: "Automatic", tip: "Disband army units, holdings, or ships; may recover limited value when selling assets." },
+  { name: "Espionage", type: "Domain / Realm", cost: "1 GB + possible RP", success: "Special", tip: "Investigate, spy, uncover troop movement, expose plots, sabotage, or attempt assassination." },
+  { name: "Finances", type: "Free / Character", cost: "None or variable", success: "Special", tip: "Convert GB to personal wealth or personal wealth to GB; arrange loans or sell assets." },
+  { name: "Forge Ley Line", type: "Domain", cost: "1 GB", success: "Special", tip: "A wizard creates a permanent magical connection between sources and provinces." },
+  { name: "Fortify", type: "Domain / Realm", cost: "Variable", success: "2+", tip: "Create or improve castles and fortified holdings." },
+  { name: "Grant", type: "Free", cost: "Variable", success: "Varies", tip: "Dispense titles, privileges, offices, gifts, or patronage." },
+  { name: "Hold Action", type: "Free", cost: "None", success: "Automatic", tip: "Delay an action until later in the action round." },
+  { name: "Investiture", type: "Domain / Realm", cost: "Variable", success: "Special", tip: "Transfer or confirm domain, regency, bloodline, vassalage, or inheritance through sacred rite." },
+  { name: "Lieutenant", type: "Character", cost: "Variable", success: "Special", tip: "Recruit or create a lieutenant for the regent’s domain." },
+  { name: "Move Troops", type: "Free", cost: "Usually 1 GB per 10 unit-province moves", success: "Automatic / special", tip: "Relocate troops within permitted territory or under declared war conditions." },
+  { name: "Muster Armies", type: "Domain", cost: "Variable by unit", success: "Special", tip: "Create new army units." },
+  { name: "Ply Trade", type: "Character", cost: "None", success: "Special", tip: "Use a personal profession or craft to earn money during the action round." },
+  { name: "Realm Spell", type: "Domain", cost: "Spell cost", success: "Special", tip: "A priest or wizard regent casts realm magic through temple/source power and regency." },
+  { name: "Research", type: "Character", cost: "1 GB+", success: "Special", tip: "Research spells, realm spells, magical items, or major arcane/theological work." },
+  { name: "Rule", type: "Domain / Realm", cost: "1 GB plus RP by target level", success: "10+", tip: "Increase a province or holding by one level." },
+  { name: "Trade Route", type: "Domain / Realm", cost: "1 GB, 1 RP", success: "10+", tip: "Create a profitable overland or basic sea trade route using guild influence." },
+  { name: "Training", type: "Character", cost: "Special", success: "Special", tip: "Train for advancement, learn or improve proficiencies, or gain 1 hp." },
+  { name: "Exploratory Trade", type: "Domain / Character", cost: "1 RP, 5 GB + cargo investment", success: "20+", tip: "Send ships on speculative long-distance voyages seeking new markets and profits." },
+  { name: "Improve Unit", type: "Domain / Realm", cost: "1 RP, 1 GB per unit/month", success: "Special", tip: "Train a standard military unit to improve a battle rating or gain a new capability." },
+  { name: "Ley Link", type: "Free", cost: "1 RP", success: "Automatic", tip: "Temporarily lend control of sources or ley lines to another wizard regent." },
+  { name: "Move Ships", type: "Free", cost: "None", success: "Automatic", tip: "Order ships to sail, trade, transport, patrol, or support missions." },
+  { name: "Move Troops by Sea", type: "Free", cost: "1 GB per five units", success: "Automatic", tip: "Use owned ships to transport military units by water." },
+  { name: "Progress", type: "Realm", cost: "1 RP, 1 GB", success: "Special", tip: "Develop social, military, magical, technological, economic, or administrative advances." },
+  { name: "Sea Trade Route", type: "Domain / Realm", cost: "1 RP, 1 GB", success: "10+", tip: "Expanded maritime trade route rules using ports, ships, cargo capacity, and sailing distance." },
+  { name: "Trade Chain", type: "Domain", cost: "2 GB, 2 RP", success: "10+", tip: "Extend an existing trade route through linked ports or market nodes." }
+];
+
+const DEFAULT_ACTION_ENTRY = { action: "", target: "", cost: "", result: "", notes: "" };
+
+const DEFAULT_DOMAIN_TURN = {
+  label: "",
+  season: "",
+  year: "",
+  freeActions: [
+    { ...DEFAULT_ACTION_ENTRY },
+    { ...DEFAULT_ACTION_ENTRY },
+    { ...DEFAULT_ACTION_ENTRY }
+  ],
+  domainActions: [
+    { ...DEFAULT_ACTION_ENTRY },
+    { ...DEFAULT_ACTION_ENTRY },
+    { ...DEFAULT_ACTION_ENTRY }
+  ],
+  notes: ""
+};
+
+function actionOptions(selected) {
+  return DOMAIN_ACTIONS.map(action => ({
+    value: action.name,
+    label: action.name || "— Select Action —",
+    title: action.name ? `${action.type}; Cost: ${action.cost}; Success: ${action.success}. ${action.tip}` : action.tip,
+    selected: action.name === selected
+  }));
+}
+
+function actionInfo(name) {
+  return DOMAIN_ACTIONS.find(a => a.name === name) ?? DOMAIN_ACTIONS[0];
+}
+
+
+const DEFAULT_DOMAIN = {
+  domainName: "",
+  regent: "",
+  capitalProvince: "",
+  raceClassLevel: "",
+  bloodlineStrength: "",
+  bloodlineDerivation: "",
+  bloodlineScore: 0,
+  domainPower: 0,
+  treasury: 0,
+  currentRegency: 0,
+  domainMaintenanceCost: 0,
+  courtMaintenance: 0,
+  diplomacyEffects: "",
+  provinces: [],
+  lieutenants: [],
+  armies: [],
+  tradeRoutes: [],
+  domainTurns: []
+};
+
+const DEFAULT_PROVINCE = {
+  name: "",
+  terrain: "",
+  level: 0,
+  castle: 0,
+  law: "None",
+  temple: "None",
+  guild: "None",
+  source: "None",
+  taxLevel: "Moderate",
+  loyalty: "Average",
+  regency: 0
+};
+
+const DEFAULT_ARMY = { unit: "", location: "", maintenance: 0 };
+const DEFAULT_LIEUTENANT = { name: "", role: "" };
+const DEFAULT_TRADE_ROUTE = { name: "", origin: "", destination: "", routeType: "Land", income: 0 };
+
+// Birthright Table 17: Province Taxation.
+// Null means no taxes are collected. Negative roll totals are treated as 0 GB.
+const TAX_TABLE = {
+  None: {
+    0: null, 1: null, 2: null, 3: null, 4: null, 5: null, 6: null, 7: null, 8: null, 9: null, 10: null
+  },
+  Light: {
+    0: null,
+    1: "1d3-2",
+    2: "1d3-1",
+    3: "1d3",
+    4: "1d4",
+    5: "1d4+1",
+    6: "1d6+1",
+    7: "1d8+1",
+    8: "1d10+1",
+    9: "1d12+1",
+    10: "2d8"
+  },
+  Moderate: {
+    0: null,
+    1: "1d3-1",
+    2: "1d3",
+    3: "1d4",
+    4: "1d4+1",
+    5: "1d6+1",
+    6: "1d8+1",
+    7: "1d10+1",
+    8: "1d12+1",
+    9: "2d8",
+    10: "2d8+2"
+  },
+  Severe: {
+    0: "1d3-2",
+    1: "1d3",
+    2: "1d4",
+    3: "1d4+1",
+    4: "1d6+1",
+    5: "1d8+1",
+    6: "1d10+1",
+    7: "1d12+1",
+    8: "2d8",
+    9: "2d8+2",
+    10: "2d10+2"
+  }
+};
+
+// Birthright Table 19: Domain Maintenance Costs.
+
+// Birthright Table 18: Guild and Temple Collection.
+// Province ratings above 7 use the 7+ row. Negative results are treated as 0 GB.
+const GUILD_TEMPLE_COLLECTION_TABLE = {
+  0: { 1: null,     2: null,     3: null,     "4-5": null,     "6+": null },
+  1: { 1: "1d3-2", 2: null,     3: null,     "4-5": null,     "6+": null },
+  2: { 1: "1d2-1", 2: "1d2",   3: null,     "4-5": null,     "6+": null },
+  3: { 1: "1d2-1", 2: "1d3",   3: "1d4",   "4-5": null,     "6+": null },
+  4: { 1: "1d2",   2: "1d3",   3: "1d4",   "4-5": "1d6",   "6+": null },
+  5: { 1: "1d2",   2: "1d3",   3: "1d4",   "4-5": "1d6",   "6+": null },
+  6: { 1: "1d2",   2: "1d3",   3: "2d2",   "4-5": "2d3",   "6+": "2d4+1" },
+  7: { 1: "1d3",   2: "1d2+1", 3: "1d4+1", "4-5": "1d6+1", "6+": "2d4+2" }
+};
+
+function holdingLevelBand(level) {
+  const rating = Math.floor(numberValue(level));
+  if (rating <= 0) return null;
+  if (rating <= 3) return rating;
+  if (rating <= 5) return "4-5";
+  return "6+";
+}
+
+function holdingCollectionFormula(provinceLevel, holdingLevel) {
+  const provinceRating = Math.max(0, Math.min(7, Math.floor(numberValue(provinceLevel))));
+  const band = holdingLevelBand(holdingLevel);
+  if (!band) return null;
+  return GUILD_TEMPLE_COLLECTION_TABLE?.[provinceRating]?.[band] ?? null;
+}
