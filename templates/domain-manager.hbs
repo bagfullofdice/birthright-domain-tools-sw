@@ -1,0 +1,293 @@
+<section class="br-domain-manager">
+  <header class="br-header">
+    <div>
+      <h1>{{#if domain.domainName}}{{domain.domainName}}{{else}}Birthright Domain{{/if}}</h1>
+      <p>Linked Actor: <strong>{{actor.name}}</strong> <span class="br-pill">{{systemId}}</span></p>
+    </div>
+    <div class="br-header-actions">
+      <button type="submit" title="Save the domain record to this actor."><i class="fas fa-save"></i> Save</button>
+      <button type="button" data-action="postSummary" title="Post a domain summary to chat."><i class="fas fa-scroll"></i> Post Summary</button>
+      <button type="button" data-action="createJournal" title="Create or update a journal ledger."><i class="fas fa-book"></i> Update Journal</button>
+      <button type="button" data-action="worldDomainTracker" title="Scan all actors with domain records and post a world holding index to chat."><i class="fas fa-globe"></i> World Tracker</button>
+    </div>
+  </header>
+
+  <nav class="br-action-bar">
+    <button type="button" data-action="collectRegency" title="Collect RP from the row Regency values, capped by Bloodline Score if entered."><i class="fas fa-crown"></i> Collect Regency</button>
+    <button type="button" data-action="collectTaxes" title="Roll province taxation by Birthright Table 17 only for provinces where this domain has Law 1+; Law None or Law 0 collects no province tax."><i class="fas fa-coins"></i> Collect Province Taxes</button>
+    <button type="button" data-action="collectGuildTempleTrade" title="Roll Guild and Temple income using Birthright Table 18, add trade route income, and update Treasury."><i class="fas fa-hand-holding-coins"></i> Collect Guild/Temple/Trade</button>
+    <button type="button" data-action="calculateMaintenance" title="Calculate maintenance from number of controlled provinces and holdings."><i class="fas fa-calculator"></i> Calculate Maintenance</button>
+    <button type="button" data-action="payMaintenance" title="Pay domain, court, and army maintenance from Treasury."><i class="fas fa-scale-balanced"></i> Pay Maintenance</button>
+    <button type="button" data-action="rollRandomEvent" title="Roll on Birthright Table 15: Random Events."><i class="fas fa-dice"></i> Random Event</button>
+  </nav>
+
+  <section class="br-grid br-core">
+    <label title="The name of the realm/domain.">Domain Name<input type="text" name="domain.domainName" value="{{domain.domainName}}"></label>
+    <label title="The ruler or controlling regent.">Regent<input type="text" name="domain.regent" value="{{domain.regent}}"></label>
+    <label title="Tainted, Minor, Major, Great, or True.">Bloodline Strength<input type="text" name="domain.bloodlineStrength" value="{{domain.bloodlineStrength}}"></label>
+    <label title="The seat of the domain.">Capital Province<input type="text" name="domain.capitalProvince" value="{{domain.capitalProvince}}"></label>
+    <label title="Character class and level.">Race/Class/Level<input type="text" name="domain.raceClassLevel" value="{{domain.raceClassLevel}}"></label>
+    <label title="Bloodline derivation.">Bloodline Derivation<input type="text" name="domain.bloodlineDerivation" value="{{domain.bloodlineDerivation}}"></label>
+    <label title="Caps Regency collected if entered.">Bloodline Score<input type="number" name="domain.bloodlineScore" value="{{domain.bloodlineScore}}"></label>
+    <label title="Fallback RP value if row Regency total is 0.">Domain Power<input type="number" name="domain.domainPower" value="{{domain.domainPower}}"></label>
+    <label title="Current Gold Bars.">Treasury<input type="number" step="0.01" name="domain.treasury" value="{{domain.treasury}}"></label>
+    <label title="Current Regency Points.">Current Regency Points<input type="number" name="domain.currentRegency" value="{{domain.currentRegency}}"></label>
+    <label title="Domain maintenance cost in GB.">Domain Maintenance Cost<input type="number" step="0.01" name="domain.domainMaintenanceCost" value="{{domain.domainMaintenanceCost}}"></label>
+    <label title="Court maintenance in GB.">Court Maintenance<input type="number" step="0.01" name="domain.courtMaintenance" value="{{domain.courtMaintenance}}"></label>
+  </section>
+
+  <section class="br-panel br-rule-panel">
+    <div class="br-formula" title="Row Regency values should total the RP-producing holdings/provinces available to this regent. Bloodline Score caps collection if entered.">
+      <strong>Regency this turn:</strong> {{collectibleRegency}} RP
+      <span>Rows total {{regencyFromRows}} RP. If rows are 0, Domain Power is used.</span>
+    </div>
+    <div class="br-formula" title="Birthright Table 19 style maintenance estimate plus army and court costs.">
+      <strong>Total maintenance due:</strong> {{totalMaintenance}} GB
+      <span>Domain {{maintenance.cost}} GB + Army {{armyMaintenance}} GB + Court {{courtMaintenance}} GB.</span>
+      <span>Domain cost is based on {{maintenance.controlled}} controlled provinces/holdings.</span>
+    </div>
+  </section>
+
+  <section class="br-panel">
+    <div class="br-section-title">
+      <h2>Provinces and Holdings</h2>
+      <button type="button" data-action="addProvince"><i class="fas fa-plus"></i> Add Province</button>
+    </div>
+
+    <table class="br-table">
+      <thead>
+        <tr>
+          <th title="Province name.">Province</th>
+          <th title="Terrain.">Terr.</th>
+          <th title="Province level for taxation.">Level</th>
+          <th title="Castle level.">Castle</th>
+          <th title="Law holding level.">Law</th>
+          <th title="Temple holding level.">Temple</th>
+          <th title="Guild holding level.">Guild</th>
+          <th title="Source holding level.">Source</th>
+          <th title="Province tax level.">Taxation</th>
+          <th title="Tax dice formula from Birthright Table 17.">Formula</th>
+          <th title="Province loyalty.">Loyalty</th>
+          <th title="RP contribution for this domain/regent.">Regency</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each provinceRows}}
+        <tr>
+          <td><input type="text" name="provinces.{{index}}.name" value="{{name}}"></td>
+          <td><input type="text" name="provinces.{{index}}.terrain" value="{{terrain}}"></td>
+          <td><input type="number" name="provinces.{{index}}.level" value="{{level}}"></td>
+          <td><input type="number" name="provinces.{{index}}.castle" value="{{castle}}"></td>
+          <td><select name="provinces.{{index}}.law" title="None means no holding exists. 0 means a level 0 holding exists.">
+              <option value="None" {{#if lawNone}}selected{{/if}}>None</option>
+              <option value="0" {{#if law0}}selected{{/if}}>0</option>
+              <option value="1" {{#if law1}}selected{{/if}}>1</option>
+              <option value="2" {{#if law2}}selected{{/if}}>2</option>
+              <option value="3" {{#if law3}}selected{{/if}}>3</option>
+              <option value="4" {{#if law4}}selected{{/if}}>4</option>
+              <option value="5" {{#if law5}}selected{{/if}}>5</option>
+              <option value="6" {{#if law6}}selected{{/if}}>6</option>
+              <option value="7" {{#if law7}}selected{{/if}}>7</option>
+              <option value="8" {{#if law8}}selected{{/if}}>8</option>
+              <option value="9" {{#if law9}}selected{{/if}}>9</option>
+              <option value="10" {{#if law10}}selected{{/if}}>10</option>
+            </select></td>
+          <td><select name="provinces.{{index}}.temple" title="None means no holding exists. 0 means a level 0 holding exists.">
+              <option value="None" {{#if templeNone}}selected{{/if}}>None</option>
+              <option value="0" {{#if temple0}}selected{{/if}}>0</option>
+              <option value="1" {{#if temple1}}selected{{/if}}>1</option>
+              <option value="2" {{#if temple2}}selected{{/if}}>2</option>
+              <option value="3" {{#if temple3}}selected{{/if}}>3</option>
+              <option value="4" {{#if temple4}}selected{{/if}}>4</option>
+              <option value="5" {{#if temple5}}selected{{/if}}>5</option>
+              <option value="6" {{#if temple6}}selected{{/if}}>6</option>
+              <option value="7" {{#if temple7}}selected{{/if}}>7</option>
+              <option value="8" {{#if temple8}}selected{{/if}}>8</option>
+              <option value="9" {{#if temple9}}selected{{/if}}>9</option>
+              <option value="10" {{#if temple10}}selected{{/if}}>10</option>
+            </select></td>
+          <td><select name="provinces.{{index}}.guild" title="None means no holding exists. 0 means a level 0 holding exists.">
+              <option value="None" {{#if guildNone}}selected{{/if}}>None</option>
+              <option value="0" {{#if guild0}}selected{{/if}}>0</option>
+              <option value="1" {{#if guild1}}selected{{/if}}>1</option>
+              <option value="2" {{#if guild2}}selected{{/if}}>2</option>
+              <option value="3" {{#if guild3}}selected{{/if}}>3</option>
+              <option value="4" {{#if guild4}}selected{{/if}}>4</option>
+              <option value="5" {{#if guild5}}selected{{/if}}>5</option>
+              <option value="6" {{#if guild6}}selected{{/if}}>6</option>
+              <option value="7" {{#if guild7}}selected{{/if}}>7</option>
+              <option value="8" {{#if guild8}}selected{{/if}}>8</option>
+              <option value="9" {{#if guild9}}selected{{/if}}>9</option>
+              <option value="10" {{#if guild10}}selected{{/if}}>10</option>
+            </select></td>
+          <td><select name="provinces.{{index}}.source" title="None means no holding exists. 0 means a level 0 holding exists.">
+              <option value="None" {{#if sourceNone}}selected{{/if}}>None</option>
+              <option value="0" {{#if source0}}selected{{/if}}>0</option>
+              <option value="1" {{#if source1}}selected{{/if}}>1</option>
+              <option value="2" {{#if source2}}selected{{/if}}>2</option>
+              <option value="3" {{#if source3}}selected{{/if}}>3</option>
+              <option value="4" {{#if source4}}selected{{/if}}>4</option>
+              <option value="5" {{#if source5}}selected{{/if}}>5</option>
+              <option value="6" {{#if source6}}selected{{/if}}>6</option>
+              <option value="7" {{#if source7}}selected{{/if}}>7</option>
+              <option value="8" {{#if source8}}selected{{/if}}>8</option>
+              <option value="9" {{#if source9}}selected{{/if}}>9</option>
+              <option value="10" {{#if source10}}selected{{/if}}>10</option>
+            </select></td>
+          <td>
+            <select name="provinces.{{index}}.taxLevel">
+              {{#each taxOptions}}
+              <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+              {{/each}}
+            </select>
+          </td>
+          <td class="br-formula-cell">{{taxFormula}}</td>
+          <td>
+            <select name="provinces.{{index}}.loyalty">
+              {{#each loyaltyOptions}}
+              <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+              {{/each}}
+            </select>
+          </td>
+          <td><input type="number" name="provinces.{{index}}.regency" value="{{regency}}"></td>
+          <td><button type="button" data-action="deleteProvince" data-index="{{index}}"><i class="fas fa-trash"></i></button></td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </section>
+
+
+  <section class="br-panel br-turns">
+    <div class="br-section-title">
+      <h2>Domain Turns and Actions</h2>
+      <button type="button" data-action="addDomainTurn" title="Add a new three-month domain turn."><i class="fas fa-plus"></i> Add Domain Turn</button>
+    </div>
+
+    <p class="br-help">Each domain turn represents three months. Record free actions separately from the three domain actions/action rounds.</p>
+
+    {{#each domainTurnRows}}
+    <section class="br-turn-card">
+      <div class="br-turn-header">
+        <label>Turn Label<input type="text" name="domainTurns.{{index}}.label" value="{{label}}" placeholder="Domain Turn 1"></label>
+        <label>Season / Months<input type="text" name="domainTurns.{{index}}.season" value="{{season}}" placeholder="Spring / Month names"></label>
+        <label>Year<input type="text" name="domainTurns.{{index}}.year" value="{{year}}" placeholder="552 MR"></label>
+        <button type="button" data-action="deleteDomainTurn" data-index="{{index}}" title="Delete this domain turn."><i class="fas fa-trash"></i></button>
+      </div>
+
+      <div class="br-subsection-title">
+        <h3>Free Actions</h3>
+        <button type="button" data-action="addFreeAction" data-turn-index="{{index}}" title="Add another free action row to this domain turn."><i class="fas fa-plus"></i> Add Free Action</button>
+      </div>
+      <table class="br-table br-actions-table">
+        <thead><tr><th>Action</th><th>Target</th><th>Cost</th><th>Result</th><th>Notes / Details</th><th></th></tr></thead>
+        <tbody>
+          {{#each freeRows}}
+          <tr>
+            <td>
+              <select name="domainTurns.{{turnIndex}}.freeActions.{{actionIndex}}.action" title="{{info.tip}}">
+                {{#each actionOptions}}
+                <option value="{{value}}" title="{{title}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td><input type="text" name="domainTurns.{{turnIndex}}.freeActions.{{actionIndex}}.target" value="{{target}}" placeholder="Province, holding, realm, unit"></td>
+            <td><input type="text" name="domainTurns.{{turnIndex}}.freeActions.{{actionIndex}}.cost" value="{{cost}}" placeholder="{{info.cost}}"></td>
+            <td><input type="text" name="domainTurns.{{turnIndex}}.freeActions.{{actionIndex}}.result" value="{{result}}" placeholder="{{info.success}}"></td>
+            <td><textarea name="domainTurns.{{turnIndex}}.freeActions.{{actionIndex}}.notes" rows="2" placeholder="{{info.tip}}">{{notes}}</textarea></td>
+            <td><button type="button" data-action="deleteFreeAction" data-turn-index="{{turnIndex}}" data-action-index="{{actionIndex}}" title="Delete this free action row."><i class="fas fa-trash"></i></button></td>
+          </tr>
+          {{/each}}
+        </tbody>
+      </table>
+
+      <h3>Three Domain Actions / Action Rounds</h3>
+      <table class="br-table br-actions-table">
+        <thead><tr><th>Round</th><th>Action</th><th>Target</th><th>Cost</th><th>Result</th><th>Notes / Details</th></tr></thead>
+        <tbody>
+          {{#each domainRows}}
+          <tr>
+            <td class="br-round-cell">{{round}}</td>
+            <td>
+              <select name="domainTurns.{{turnIndex}}.domainActions.{{actionIndex}}.action" title="{{info.tip}}">
+                {{#each actionOptions}}
+                <option value="{{value}}" title="{{title}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td><input type="text" name="domainTurns.{{turnIndex}}.domainActions.{{actionIndex}}.target" value="{{target}}" placeholder="Province, holding, realm, unit"></td>
+            <td><input type="text" name="domainTurns.{{turnIndex}}.domainActions.{{actionIndex}}.cost" value="{{cost}}" placeholder="{{info.cost}}"></td>
+            <td><input type="text" name="domainTurns.{{turnIndex}}.domainActions.{{actionIndex}}.result" value="{{result}}" placeholder="{{info.success}}"></td>
+            <td><textarea name="domainTurns.{{turnIndex}}.domainActions.{{actionIndex}}.notes" rows="2" placeholder="{{info.tip}}">{{notes}}</textarea></td>
+          </tr>
+          {{/each}}
+        </tbody>
+      </table>
+
+      <label class="br-turn-notes">Turn Notes
+        <textarea name="domainTurns.{{index}}.notes" rows="3" placeholder="Consequences, negotiations, unresolved issues, DM notes, or player summary.">{{notes}}</textarea>
+      </label>
+    </section>
+    {{/each}}
+  </section>
+
+  <section class="br-three-col br-lower-panels">
+    <section class="br-panel br-lieutenants-panel">
+      <div class="br-section-title">
+        <h2>Lieutenants / Counselors</h2>
+        <button type="button" data-action="addLieutenant"><i class="fas fa-plus"></i></button>
+      </div>
+      <div class="br-mini-table br-lieutenant-table">
+        {{#each lieutenantRows}}
+        <div class="br-mini-row">
+          <input type="text" name="lieutenants.{{index}}.name" value="{{name}}" placeholder="Name">
+          <input type="text" name="lieutenants.{{index}}.role" value="{{role}}" placeholder="Role">
+          <button type="button" data-action="deleteLieutenant" data-index="{{index}}"><i class="fas fa-trash"></i></button>
+        </div>
+        {{/each}}
+      </div>
+    </section>
+
+    <section class="br-panel br-armies-panel">
+      <div class="br-section-title">
+        <h2>Armies</h2>
+        <button type="button" data-action="addArmy"><i class="fas fa-plus"></i></button>
+      </div>
+      <div class="br-mini-table br-army-table">
+        {{#each armyRows}}
+        <div class="br-mini-row">
+          <input class="br-army-unit" type="text" name="armies.{{index}}.unit" value="{{unit}}" placeholder="Unit">
+          <input class="br-army-location" type="text" name="armies.{{index}}.location" value="{{location}}" placeholder="Location">
+          <input class="br-army-maint" type="number" step="0.01" name="armies.{{index}}.maintenance" value="{{maintenance}}" placeholder="GB" title="Unit maintenance cost in GB.">
+          <button type="button" data-action="deleteArmy" data-index="{{index}}"><i class="fas fa-trash"></i></button>
+        </div>
+        {{/each}}
+      </div>
+    </section>
+
+    <section class="br-panel br-trade-panel">
+      <div class="br-section-title">
+        <h2>Trade Routes</h2>
+        <button type="button" data-action="addTradeRoute"><i class="fas fa-plus"></i></button>
+      </div>
+      <p class="br-help">Mark each route as Land or Sea. Sea routes can later be tied to ships/fleets.</p>
+      <div class="br-mini-table br-trade-table">
+        {{#each tradeRouteRows}}
+        <div class="br-mini-row">
+          <input class="br-trade-name" type="text" name="tradeRoutes.{{index}}.name" value="{{name}}" placeholder="Route Name">
+          <select class="br-trade-type" name="tradeRoutes.{{index}}.routeType" title="Land routes use normal trade route rules; Sea routes use sea trade route rules and may require ports/ships depending on your campaign.">
+            <option value="Land" {{#if isLand}}selected{{/if}}>Land</option>
+            <option value="Sea" {{#if isSea}}selected{{/if}}>Sea</option>
+          </select>
+          <input class="br-trade-origin" type="text" name="tradeRoutes.{{index}}.origin" value="{{origin}}" placeholder="Origin">
+          <input class="br-trade-destination" type="text" name="tradeRoutes.{{index}}.destination" value="{{destination}}" placeholder="Destination">
+          <input class="br-trade-income" type="number" step="0.01" name="tradeRoutes.{{index}}.income" value="{{income}}" placeholder="GB">
+          <button type="button" data-action="deleteTradeRoute" data-index="{{index}}"><i class="fas fa-trash"></i></button>
+        </div>
+        {{/each}}
+      </div>
+    </section>
+  </section>
+
+</section>
