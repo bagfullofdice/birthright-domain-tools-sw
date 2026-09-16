@@ -1,0 +1,200 @@
+  domain.diplomacyEffects = safeText(domain.diplomacyEffects);
+  domain.bloodlineScore = numberValue(domain.bloodlineScore);
+  domain.domainPower = numberValue(domain.domainPower);
+  domain.treasury = numberValue(domain.treasury);
+  domain.currentRegency = numberValue(domain.currentRegency);
+  domain.domainMaintenanceCost = numberValue(domain.domainMaintenanceCost);
+  domain.courtMaintenance = numberValue(domain.courtMaintenance);
+
+  return domain;
+}
+
+function taxOptions(selected) {
+  return ["None", "Light", "Moderate", "Severe"].map(value => ({
+    value,
+    label: value,
+    selected: value === selected
+  }));
+}
+
+function loyaltyOptions(selected) {
+  return ["Rebellious", "Poor", "Average", "High", "Loyal"].map(value => ({
+    value,
+    label: value,
+    selected: value === selected
+  }));
+}
+
+function provinceTaxFormula(level, taxLevel) {
+  const rating = clampProvinceLevel(level);
+  const normalized = normalizeTaxLevel(taxLevel);
+  return TAX_TABLE?.[normalized]?.[rating] ?? null;
+}
+
+function calculateDomainMaintenance(domain) {
+  const provinceCount = domain.provinces.length;
+  const holdingCount = domain.provinces.reduce((sum, p) => {
+    return sum
+      + (holdingExists(p.law) ? 1 : 0)
+      + (holdingExists(p.temple) ? 1 : 0)
+      + (holdingExists(p.guild) ? 1 : 0)
+      + (holdingExists(p.source) ? 1 : 0);
+  }, 0);
+
+  const total = provinceCount + holdingCount;
+
+  for (const row of MAINTENANCE_TABLE) {
+    if (total <= row.max) return { controlled: total, cost: row.cost };
+  }
+
+  return { controlled: total, cost: Math.ceil(total / 3) };
+}
+
+
+async function collectGuildTempleTradeForActor(actor, maybeDomain = null) {
+  if (!actor) {
+    ui.notifications.warn("Select a regent token first.");
+    return null;
+  }
+
+  const domain = maybeDomain ?? await getDomain(actor);
+  let guildIncome = 0;
+  let templeIncome = 0;
+  const landTradeIncome = domain.tradeRoutes
+    .filter(t => normalizeTradeRouteType(t.routeType) === "Land")
+    .reduce((sum, t) => sum + numberValue(t.income), 0);
+  const seaTradeIncome = domain.tradeRoutes
+    .filter(t => normalizeTradeRouteType(t.routeType) === "Sea")
+    .reduce((sum, t) => sum + numberValue(t.income), 0);
+  const tradeIncome = landTradeIncome + seaTradeIncome;
+  let guildRows = "";
+  let templeRows = "";
+  const rolls = [];
+  const registry = await buildWorldDomainRegistry();
+  let lawClaimRows = "";
+
+  for (const province of domain.provinces) {
+    const provinceLevel = clampProvinceLevel(province.level);
+
+    const guildLevel = holdingNumberValue(province.guild);
+    if (guildLevel > 0) {
+      const formula = holdingCollectionFormula(provinceLevel, guildLevel);
+      let rollResult = "—";
+      let income = 0;
+      if (formula) {
+        const roll = await new Roll(formula).evaluate();
+        rolls.push(roll);
+        income = Math.max(0, numberValue(roll.total));
+        rollResult = `${formula} = ${roll.total}`;
+      }
+      guildIncome += income;
+      guildRows += `<tr><td>${province.name || "Unnamed Province"}</td><td>${provinceLevel}</td><td>${guildLevel}</td><td>${rollResult}</td><td>${income} GB</td></tr>`;
+      for (const claim of findLawClaimsForHolding(registry, province.name, actor.id)) {
+        lawClaimRows += `<tr><td>${province.name || "Unnamed Province"}</td><td>Guild</td><td>${domain.domainName || actor.name}</td><td>${claim.domainName}</td><td>${holdingDisplay(claim.rawLevel)}</td></tr>`;
+      }
+    }
+
+    const templeLevel = holdingNumberValue(province.temple);
+    if (templeLevel > 0) {
+      const formula = holdingCollectionFormula(provinceLevel, templeLevel);
+      let rollResult = "—";
+      let income = 0;
+      if (formula) {
+        const roll = await new Roll(formula).evaluate();
+        rolls.push(roll);
+        income = Math.max(0, numberValue(roll.total));
+        rollResult = `${formula} = ${roll.total}`;
+      }
+      templeIncome += income;
+      templeRows += `<tr><td>${province.name || "Unnamed Province"}</td><td>${provinceLevel}</td><td>${templeLevel}</td><td>${rollResult}</td><td>${income} GB</td></tr>`;
+      for (const claim of findLawClaimsForHolding(registry, province.name, actor.id)) {
+        lawClaimRows += `<tr><td>${province.name || "Unnamed Province"}</td><td>Temple</td><td>${domain.domainName || actor.name}</td><td>${claim.domainName}</td><td>${holdingDisplay(claim.rawLevel)}</td></tr>`;
+      }
+    }
+  }
+
+  const totalIncome = guildIncome + templeIncome + tradeIncome;
+  domain.treasury = numberValue(domain.treasury) + totalIncome;
+  await setDomain(actor, domain);
+
+  await ChatMessage.create({
+    speaker: ChatMessage.getSpeaker({ actor }),
+    rolls,
+    content: `
+      <section class="birthright-chat-card">
+        <h2>${domain.domainName || actor.name}: Guild, Temple, and Trade Collection</h2>
+        <h3>Guild Collection</h3>
+        <table style="width:100%; border-collapse: collapse;">
+          <thead><tr><th style="text-align:left;">Province</th><th style="text-align:left;">Province Rating</th><th style="text-align:left;">Guild Level</th><th style="text-align:left;">Roll</th><th style="text-align:left;">Income</th></tr></thead>
+          <tbody>${guildRows || `<tr><td colspan="5">No guild holdings to collect from.</td></tr>`}</tbody>
+        </table>
+        <h3>Temple Collection</h3>
+        <table style="width:100%; border-collapse: collapse;">
+          <thead><tr><th style="text-align:left;">Province</th><th style="text-align:left;">Province Rating</th><th style="text-align:left;">Temple Level</th><th style="text-align:left;">Roll</th><th style="text-align:left;">Income</th></tr></thead>
+          <tbody>${templeRows || `<tr><td colspan="5">No temple holdings to collect from.</td></tr>`}</tbody>
+        </table>
+        <h3>Law Claim Warnings</h3>
+        <table style="width:100%; border-collapse: collapse;">
+          <thead><tr><th style="text-align:left;">Province</th><th style="text-align:left;">Target</th><th style="text-align:left;">Collector</th><th style="text-align:left;">Law Holder</th><th style="text-align:left;">Law Level</th></tr></thead>
+          <tbody>${lawClaimRows || `<tr><td colspan="5">No outside law holdings detected against these collections.</td></tr>`}</tbody>
+        </table>
+
+        <hr>
+        <p><b>Guild Income:</b> ${guildIncome} GB</p>
+        <p><b>Temple Income:</b> ${templeIncome} GB</p>
+        <p><b>Land Trade Route Income:</b> ${landTradeIncome} GB</p>
+        <p><b>Sea Trade Route Income:</b> ${seaTradeIncome} GB</p>
+        <p><b>Total Trade Route Income:</b> ${tradeIncome} GB</p>
+        <p><b>Total Collected:</b> ${totalIncome} GB</p>
+        <p><b>New Treasury:</b> ${domain.treasury} GB</p>
+      </section>`
+  });
+
+  return { domain, guildIncome, templeIncome, tradeIncome, totalIncome };
+}
+
+
+
+function holdingDisplay(value) {
+  const normalized = typeof normalizeHoldingLevel === "function" ? normalizeHoldingLevel(value) : value;
+  return normalized === "None" ? "None" : String(normalized);
+}
+
+function hasDomainData(actor) {
+  return !!actor?.getFlag?.(MODULE_ID, "domain");
+}
+
+async function buildWorldDomainRegistry() {
+  const registry = {
+    actors: [],
+    provinces: {}
+  };
+
+  for (const actor of game.actors.filter(a => hasDomainData(a))) {
+    const domain = await getDomain(actor);
+    if (!domain) continue;
+
+    const domainName = domain.domainName || actor.name;
+    registry.actors.push({
+      actorId: actor.id,
+      actorName: actor.name,
+      domainName,
+      regent: domain.regent || actor.name,
+      treasury: numberValue(domain.treasury),
+      regency: numberValue(domain.currentRegency),
+      domainPower: numberValue(domain.domainPower),
+      bloodlineScore: numberValue(domain.bloodlineScore)
+    });
+
+    for (const province of domain.provinces ?? []) {
+      const provinceName = safeText(province.name);
+      if (!provinceName) continue;
+
+      const key = provinceName.toLowerCase();
+      if (!registry.provinces[key]) {
+        registry.provinces[key] = {
+          name: provinceName,
+          provinceLevels: [],
+          law: [],
+          temple: [],
+          guild: [],
